@@ -1,0 +1,7 @@
+dist/
+__pycache__/
+*.pyc
+.xingviz/
+.DS_Store
+*.blend1
+examples/*.wav
