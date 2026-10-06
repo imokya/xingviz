@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "xingviz"
-version = "0.1.0"
+version = "0.5.0"
 name = "XingViz"
 tagline = "Direct your previz in plain language with Claude Code"
 maintainer = "xingor"
@@ -16,8 +16,8 @@ blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
-files = "Read, write and version the previz script next to it"
-network = "Launches the Claude Code CLI, which talks to the Anthropic API"
+files = "Stores the bridge client and screenshots in ~/.xingviz"
+network = "Runs Claude Code and a local bridge on 127.0.0.1"
 
 [build]
 paths_exclude_pattern = ["__pycache__/", "*.pyc", ".DS_Store"]

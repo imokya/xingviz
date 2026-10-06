@@ -2,93 +2,77 @@
 
 用一句话改你的 Blender previz。
 
-XingViz 是一个 Blender 扩展：在 3D 视图侧边栏里输入需求，比如「S4 的机位换到右边」「时间静止提前到 190 帧」「鸽子多一倍」，它会调用 [Claude Code](https://claude.com/claude-code) 修改生成 previz 的 Python 脚本，然后自动重建场景。
+在 3D 视图里点 XingViz 按钮，输入「镜头跟随女孩，推近到耳朵特写」这样的需求，[Claude Code](https://claude.com/claude-code) 会直接修改当前场景，改完自己渲染关键帧检查。
 
-*Direct your previz in plain language. XingViz sends your request to the Claude Code CLI, which edits the Python script that builds your previz scene. The add-on then re-runs the script inside Blender.*
+*Describe a change in plain language; Claude Code edits your open Blender scene and checks its own work.*
 
-## 功能
+## 准备
 
-- **自然语言修改**：用侧边栏面板或 `Ctrl + Shift + X` 弹出对话框输入需求
-- **理解上下文**：自动附带当前帧、当前镜头、时间轴标记和选中物体；可选附带视口截图，所以能直接说「这个镜头」「这个人」
-- **记住对话**：连续多次修改会延续同一段对话，Claude 记得之前改过什么
-- **版本历史**：每次修改前后都存档，一键撤销或恢复到任意版本
-- **自动修复**：脚本报错时，把错误信息发回给 Claude 自动修复，次数可配置
-- **不卡界面**：Claude 在后台线程工作，这期间 Blender 可以照常操作
-
-## 要求
-
-- Blender 4.2 或更高版本（在 5.1 上开发测试）
-- 已安装 [Claude Code](https://docs.claude.com/claude-code) CLI 并登录：在终端运行一次 `claude`，输入 `/login`
+1. **Blender 4.2 或更高**（macOS / Windows / Linux）
+2. **Claude Code**：按[官方说明](https://docs.claude.com/claude-code)安装，然后在终端运行一次 `claude`，输入 `/login` 登录
 
 ## 安装
 
-最简单：到 [Releases](https://github.com/imokya/xingviz/releases) 下载 `xingviz-<版本>.zip`，然后跳到第 2 步。
-
-1. 或者自己打包（先克隆仓库）：
-   ```bash
-   git clone https://github.com/imokya/xingviz.git && cd xingviz
-   ```
-   然后在仓库根目录运行：
-   ```bash
-   ./scripts/build.sh
-   ```
-   会生成 `dist/xingviz-<版本>.zip`。
-2. Blender → 编辑 → 偏好设置 → 获取扩展 → 右上角 ⌄ → **从磁盘安装…**，选择这个 zip。
-
-开发时可以把 `xingviz/` 目录软链到 Blender 的扩展目录，改完代码后重启 Blender 即可生效：
-```bash
-ln -s "$PWD/xingviz" ~/Library/Application\ Support/Blender/<版本>/extensions/user_default/xingviz
-```
+1. 到 [Releases](https://github.com/imokya/xingviz/releases) 下载最新的 `xingviz-x.y.z.zip`
+2. Blender → 编辑 → 偏好设置 → 获取扩展 → 右上角 ⌄ → **从磁盘安装…** → 选这个 zip
 
 ## 使用
 
-1. 3D 视图按 `N` 打开侧边栏，找到 **XingViz** 标签页。
-2. 选择一个 previz 脚本，或点 **+** 从模板新建。`examples/earbuds_previz.py` 是一个完整示例：女孩在街上戴上耳机，世界瞬间静止。
-3. 输入需求，点 **发送**。
+1. 点 3D 视图底部中间的 **XingViz** 按钮（或按 `Ctrl + Shift + X`）
+2. 输入需求，点 **发送**
+3. 等按钮显示「完成」，点开看 Claude 的说明
 
-## 工作原理
+不满意可以接着说，或者点 **撤销**（`Cmd/Ctrl + Z` 也行）。点 **新对话** 让 Claude 忘掉之前的上下文。
 
-```
-需求 + 上下文 ──► claude -p（只允许 Read/Edit/Write/Glob/Grep，工作目录是脚本所在文件夹）
-                      │ 修改脚本
-                      ▼
-             保存新版本（.xingviz/<脚本名>/vNNN.py）
-                      ▼
-             在 Blender 中 exec 脚本重建场景 ──报错──► 把错误发回 Claude 修复
-```
+小技巧：
 
-**脚本是唯一的"源文件"**：场景永远由脚本生成，所以每个版本都能完整复现、随时回退。版本和对话状态保存在脚本旁边的 `.xingviz/` 目录中。
+- 先选中物体、把时间轴拖到那一帧，再说「这个人」「这个镜头」，Claude 能看懂
+- 打开 **截图**，会把当前视口画面一起发过去
+- 小改动打开 **快速**，响应更快
 
-### 偏好设置
+## 设置
+
+偏好设置 → 扩展 → XingViz 展开：
 
 | 选项 | 说明 |
 |---|---|
-| Claude CLI 路径 | 留空则自动查找 |
-| 模型 | 传给 `claude --model`，例如 `opus`、`sonnet` |
-| 自动修复 / 最多次数 | 脚本报错时自动发回给 Claude 修复 |
-| 修改后先确认再运行 | 先看改动，再手动点「运行修改」 |
-| 额外风格要求 | 每次请求都会附加的全局要求 |
+| Claude CLI 路径 | 一般留空，自动查找；显示「未找到」时手动选 `claude` 可执行文件 |
+| 模型 | 例如 `opus`、`sonnet`，留空用 Claude Code 默认 |
+| 快速模式模型 | 打开「快速」时用的模型 |
+| 超时 | 单次请求最长时间 |
+| 额外风格要求 | 每次都附加给 Claude，例如「物体名用英文」 |
+| 悬浮按钮 | 关掉后用快捷键或侧边栏（N 面板 → XingViz） |
+| 桥接端口 / 自动开启 | 见下方「桥接」 |
 
-## 安全说明
+数据存放在 `~/.xingviz`，可用环境变量 `XINGVIZ_HOME` 改到别处。
 
-Claude 生成的脚本会在你的 Blender 里直接执行，拥有和普通 Python 脚本一样的权限。Claude 本身只被允许读写脚本所在的文件夹，且不能执行命令。如果需要先检查代码，请打开「修改后先确认再运行」。
+## 常见问题
 
-## 项目结构
+- **未找到 claude**：确认终端里能运行 `claude`，然后在设置里手动指定路径。Windows 上一般是 `%USERPROFILE%\.local\bin\claude.exe` 或 `%APPDATA%\npm\claude.cmd`
+- **提示没登录**：终端运行 `claude`，输入 `/login`
+- **日志**：点面板里的 **日志**，或在文本编辑器里打开 `XingViz Log`
 
+## 桥接（进阶）
+
+点 **桥接** 后，本机其它 Claude Code 会话（比如桌面版对话）也能操控这个 Blender：
+
+```bash
+python3 ~/.xingviz/xvctl.py ping
+python3 ~/.xingviz/xvctl.py exec -c "_result = [o.name for o in bpy.context.selected_objects]"
+python3 ~/.xingviz/xvctl.py shot --frame 120 -o shot.png
 ```
-xingviz/                  扩展源码（打包进 zip 的部分）
-  blender_manifest.toml
-  __init__.py             注册
-  core.py                 Claude 进程、版本管理、脚本执行
-  operators.py            操作（发送、撤销、恢复……）
-  panel.py                侧边栏界面
-  preferences.py          偏好设置
-  properties.py           场景/运行时属性
-  templates/blank_previz.py
-examples/                 示例 previz 脚本
-scripts/build.sh          打包
+
+桥接只监听 127.0.0.1，每个请求都要带随机令牌。插件自己发送需求时会临时开启，结束后自动关闭。
+
+## 从源码打包
+
+```bash
+git clone https://github.com/imokya/xingviz.git && cd xingviz
+BLENDER=/path/to/blender ./scripts/build.sh
 ```
 
-## 许可证
+生成 `dist/xingviz-<版本>.zip`。macOS 上不设置 `BLENDER` 会默认用 `/Applications/Blender.app`。
 
-GPL-3.0-or-later，详见 [LICENSE](LICENSE)。
+## 许可
+
+GPL-3.0-or-later

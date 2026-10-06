@@ -4,4 +4,4 @@ __pycache__/
 .xingviz/
 .DS_Store
 *.blend1
-examples/*.wav
+*.wav

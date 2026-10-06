@@ -5,16 +5,12 @@ from bpy.props import BoolProperty, PointerProperty, StringProperty
 
 class XingVizSceneProps(bpy.types.PropertyGroup):
     """随 .blend 保存"""
-    script_path: StringProperty(
-        name="Previz 脚本",
-        description="生成 previz 场景的 Python 脚本，Claude 会修改它",
-        subtype='FILE_PATH',
-    )
+    session_id: StringProperty(description="Claude 对话 ID，用于连续修改时记住上下文")
 
 
 class XingVizRuntimeProps(bpy.types.PropertyGroup):
     """运行时状态（不保存）"""
-    prompt: StringProperty(name="需求", description="用自然语言描述你想怎么改 previz")
+    prompt: StringProperty(name="需求", description="用自然语言描述你想怎么改当前的 previz")
     attach_screenshot: BoolProperty(
         name="附带视口截图",
         description="把当前 3D 视口截图发给 Claude，方便说「这个画面」",
@@ -25,7 +21,6 @@ class XingVizRuntimeProps(bpy.types.PropertyGroup):
     activity: StringProperty()
     last_reply: StringProperty()
     last_error: StringProperty()
-    pending_review: BoolProperty()
 
 
 _classes = (XingVizSceneProps, XingVizRuntimeProps)

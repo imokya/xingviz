@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-import os
-
 import bpy
 
-from . import core
+from . import bridge
+from .preferences import get_prefs
+
+COMPOSER_UNITS = 28
 
 
-def _wrap(text, region_width):
-    """按区域宽度折行（中文按两个字符宽度算）"""
-    units = max(16, int(region_width / (7 * bpy.context.preferences.view.ui_scale)) - 6)
+def _wrap(text, width_px):
+    """按像素宽度折行（中文按两个字符宽度算）"""
+    units = max(16, int(width_px / (7 * bpy.context.preferences.view.ui_scale)) - 6)
     out = []
     for para in text.splitlines() or [""]:
         cur, w = "", 0
@@ -23,7 +24,7 @@ def _wrap(text, region_width):
     return out
 
 
-def _label_block(layout, text, width, icon='NONE', max_lines=14):
+def _label_block(layout, text, width, icon='NONE', max_lines=12):
     col = layout.column(align=True)
     col.scale_y = 0.8
     lines = _wrap(text, width)
@@ -33,6 +34,70 @@ def _label_block(layout, text, width, icon='NONE', max_lines=14):
         col.label(text="…（完整内容见对话日志）", icon='BLANK1')
 
 
+def draw_composer(layout, context, width, popup=False):
+    """悬浮弹窗和侧边栏共用的界面"""
+    r = context.window_manager.xingviz
+
+    # 输入框
+    col = layout.column()
+    col.enabled = not r.busy
+    col.scale_y = 1.5
+    if popup and not r.busy:
+        col.activate_init = True
+    col.prop(r, "prompt", text="", placeholder="描述你想怎么改当前场景，例如：镜头跟随女孩，推近到耳朵特写")
+
+    # 开关 + 发送
+    row = layout.row(align=True)
+    row.prop(r, "attach_screenshot", text="截图", icon='IMAGE_DATA', toggle=True)
+    row.prop(get_prefs(), "fast_mode", text="快速", icon='AUTO', toggle=True)
+    on = bridge.is_running()
+    row.operator("xingviz.bridge_toggle", text="桥接", icon='LINKED' if on else 'UNLINKED', depress=on)
+    row.separator()
+    sub = row.row(align=True)
+    sub.scale_x = 1.6
+    if r.busy:
+        sub.operator("xingviz.cancel", text="取消", icon='CANCEL')
+    else:
+        sub.operator("xingviz.send", text="发送", icon='PLAY')
+
+    # 状态
+    if on and not r.busy:
+        layout.label(text=f"桥接中 127.0.0.1:{bridge.port()} · 已处理 {bridge.stats['requests']} 个请求",
+                     icon='CHECKMARK')
+    if r.busy and popup:
+        # 弹窗不会自动刷新，别显示会"卡住"的秒数
+        _label_block(layout, "Claude 正在工作。可以关掉这个窗口，进度和结果会显示在底部按钮上，完成后再点开查看。",
+                     width, 'SORTTIME', 3)
+    elif r.status:
+        icon = 'SORTTIME' if r.busy else ('ERROR' if r.last_error else 'CHECKMARK')
+        layout.label(text=r.status, icon=icon)
+    if r.busy and r.activity and not popup:
+        _label_block(layout, r.activity, width, 'TOOL_SETTINGS', 3)
+    if r.last_reply and not r.busy:
+        _label_block(layout.box(), r.last_reply, width, 'LIGHT', 8 if popup else 12)
+    if r.last_error and not r.busy:
+        _label_block(layout.box(), r.last_error.strip().splitlines()[-1], width, 'ERROR', 4)
+
+    row = layout.row(align=True)
+    row.enabled = not r.busy
+    row.operator("xingviz.undo", text="撤销", icon='LOOP_BACK')
+    row.operator("xingviz.new_session", text="新对话", icon='ADD')
+    row.operator("xingviz.show_log", text="日志", icon='TEXT')
+
+
+class XINGVIZ_PT_composer(bpy.types.Panel):
+    """点击悬浮按钮弹出的输入框"""
+    bl_label = "XingViz"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'HEADER'
+    bl_ui_units_x = COMPOSER_UNITS
+
+    def draw(self, context):
+        self.layout.label(text="XingViz 星视", icon='OUTLINER_OB_CAMERA')
+        width = COMPOSER_UNITS * 20 * context.preferences.view.ui_scale
+        draw_composer(self.layout, context, width, popup=True)
+
+
 class XINGVIZ_PT_main(bpy.types.Panel):
     bl_label = "XingViz"
     bl_space_type = 'VIEW_3D'
@@ -40,86 +105,10 @@ class XINGVIZ_PT_main(bpy.types.Panel):
     bl_category = "XingViz"
 
     def draw(self, context):
-        layout = self.layout
-        r = context.window_manager.xingviz
-        width = context.region.width
-
-        row = layout.row(align=True)
-        row.prop(context.scene.xingviz, "script_path", text="")
-        row.operator("xingviz.new_script", text="", icon='FILE_NEW')
-        row.operator("xingviz.open_script", text="", icon='TEXT')
-
-        path = core.script_path()
-        if not path or not os.path.isfile(path):
-            layout.label(text="选择一个 previz 脚本，或点 + 新建", icon='INFO')
-            return
-
-        box = layout.box()
-        col = box.column()
-        col.enabled = not r.busy
-        col.prop(r, "prompt", text="", icon='OUTLINER_DATA_SPEAKER')
-        row = box.row(align=True)
-        if r.busy:
-            row.operator("xingviz.cancel", icon='CANCEL')
-        else:
-            row.scale_y = 1.3
-            row.operator("xingviz.send", icon='PLAY')
-        box.prop(r, "attach_screenshot")
-
-        if r.status:
-            icon = 'SORTTIME' if r.busy else ('ERROR' if r.last_error else 'CHECKMARK')
-            layout.label(text=r.status, icon=icon)
-        if r.busy and r.activity:
-            _label_block(layout, r.activity, width, 'TOOL_SETTINGS', 3)
-        if r.pending_review:
-            row = layout.row(align=True)
-            row.operator("xingviz.run", text="运行修改", icon='PLAY')
-            row.operator("xingviz.discard", icon='LOOP_BACK')
-        if r.last_reply and not r.busy:
-            _label_block(layout.box(), r.last_reply, width, 'LIGHT')
-        if r.last_error and not r.busy:
-            _label_block(layout.box(), r.last_error.strip().splitlines()[-1], width, 'ERROR', 4)
-
-        row = layout.row(align=True)
-        row.enabled = not r.busy
-        row.operator("xingviz.run", icon='FILE_REFRESH')
-        row.operator("xingviz.undo", text="撤销", icon='LOOP_BACK')
-        row = layout.row(align=True)
-        row.operator("xingviz.new_session", icon='ADD')
-        row.operator("xingviz.show_log", text="日志", icon='TEXT')
+        draw_composer(self.layout, context, context.region.width)
 
 
-class XINGVIZ_PT_history(bpy.types.Panel):
-    bl_label = "版本历史"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "XingViz"
-    bl_parent_id = "XINGVIZ_PT_main"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    @classmethod
-    def poll(cls, context):
-        p = core.script_path()
-        return bool(p) and os.path.isfile(p)
-
-    def draw(self, context):
-        st = core.load_state(core.script_path())
-        if not st["versions"]:
-            self.layout.label(text="发送第一个需求后开始记录")
-            return
-        col = self.layout.column(align=True)
-        col.enabled = not context.window_manager.xingviz.busy
-        for i in range(len(st["versions"]) - 1, max(-1, len(st["versions"]) - 13), -1):
-            v = st["versions"][i]
-            row = col.row(align=True)
-            cur = i == st["current"]
-            op = row.operator("xingviz.restore", text="", icon='RADIOBUT_ON' if cur else 'RADIOBUT_OFF',
-                              emboss=False)
-            op.index = i
-            row.label(text=f"v{i} {v['time'][-5:]}  {v['prompt']}")
-
-
-_classes = (XINGVIZ_PT_main, XINGVIZ_PT_history)
+_classes = (XINGVIZ_PT_composer, XINGVIZ_PT_main)
 
 
 def register():

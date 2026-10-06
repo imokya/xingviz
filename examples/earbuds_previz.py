@@ -1,7 +1,7 @@
 # Previz: 女孩走在喧闹街道 -> 掏出耳机仓 -> 戴上耳机 -> 世界瞬间静止
-# 用 XingViz 插件选择本文件即可运行 / 修改；
-# 或在 Blender Python Console 中运行:
+# 示例场景：在 Blender 的「脚本」工作区打开本文件点运行，或在 Python 控制台执行
 #   exec(open("/path/to/earbuds_previz.py").read())
+# 生成场景后，就可以用 XingViz 按钮直接说「镜头推近到耳朵特写」之类的修改。
 # 可重复运行：会删除并重建 "Previz_Earbuds" 场景，不影响其它场景。
 
 import bpy, bmesh, math, random, os
