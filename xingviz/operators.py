@@ -21,7 +21,7 @@ class XINGVIZ_OT_composer(bpy.types.Operator):
 class XINGVIZ_OT_send(bpy.types.Operator):
     bl_idname = "xingviz.send"
     bl_label = "发送"
-    bl_description = "让 Claude 按你的描述直接修改当前场景"
+    bl_description = "让 AI 按你的描述直接修改当前场景"
 
     def execute(self, context):
         r = context.window_manager.xingviz
@@ -49,7 +49,7 @@ class XINGVIZ_OT_cancel(bpy.types.Operator):
 class XINGVIZ_OT_undo(bpy.types.Operator):
     bl_idname = "xingviz.undo"
     bl_label = "撤销"
-    bl_description = "撤销 Claude 的上一次修改（等同 Cmd/Ctrl+Z）"
+    bl_description = "撤销 AI 的上一次修改（等同 Cmd/Ctrl+Z）"
 
     @classmethod
     def poll(cls, context):
@@ -68,7 +68,7 @@ class XINGVIZ_OT_undo(bpy.types.Operator):
 class XINGVIZ_OT_new_session(bpy.types.Operator):
     bl_idname = "xingviz.new_session"
     bl_label = "新对话"
-    bl_description = "让 Claude 忘掉之前的对话（场景不受影响）"
+    bl_description = "让 AI 忘掉之前的对话（场景不受影响）"
 
     def execute(self, context):
         core.reset_session()
@@ -98,12 +98,12 @@ class XINGVIZ_OT_show_log(bpy.types.Operator):
 class XINGVIZ_OT_bridge_toggle(bpy.types.Operator):
     bl_idname = "xingviz.bridge_toggle"
     bl_label = "开关桥接"
-    bl_description = "常开桥接：允许本机其它 Claude Code 会话（例如桌面版对话）直接操控这个 Blender"
+    bl_description = "常开桥接：允许本机其它 AI 工具（Claude Code、Codex 等）直接操控这个 Blender"
 
     def execute(self, context):
         if bridge.is_running():
             if core.is_busy():
-                self.report({'WARNING'}, "Claude 正在工作，需要桥接，请稍后再关")
+                self.report({'WARNING'}, "AI 正在工作，需要桥接，请稍后再关")
                 return {'CANCELLED'}
             bridge.stop()
             self.report({'INFO'}, "桥接已关闭")

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """请求流程：
-   用户需求 + 场景概况 -> 后台线程运行 `claude -p`
-   -> Claude 通过桥接（xvctl.py）在当前 Blender 里查询、执行代码、截图检查
+   用户需求 + 场景概况 -> 后台线程运行 AI 命令行（Claude Code / Codex，见 agents.py）
+   -> AI 通过桥接（xvctl.py）在当前 Blender 里查询、执行代码、截图检查
    -> 结束后记一步撤销，Cmd/Ctrl+Z 可回到修改前。
 """
 import json
@@ -19,7 +19,8 @@ import traceback
 import bpy
 
 from . import bridge
-from .preferences import HOME_DIR, claude_command, extra_path_dirs, find_claude, get_prefs
+from . import agents
+from .preferences import HOME_DIR, extra_path_dirs, get_prefs
 
 LOG_TEXT = "XingViz Log"
 NOTES_TEXT = "XingViz Notes"
@@ -29,20 +30,18 @@ XVCTL = os.path.join(HOME_DIR, "xvctl.py")
 SYSTEM_PROMPT = """你是 XingViz —— 运行在 Blender 插件里的 previz（预演动画）助手。用户正在 Blender {version} 里做 previz，
 你的任务是直接修改用户当前打开的场景。
 
-操控 Blender 的唯一方式是通过 Bash 调用这个命令行工具（命令前缀必须完全一致）：
+操控 Blender 的唯一方式是通过 shell 命令调用这个命令行工具（命令前缀必须完全一致）：
   {cli} scene                                    当前场景摘要（帧范围、当前帧、镜头标记、选中物体）
   {cli} exec -c "<python>"                       在 Blender 主线程执行 Python：bpy 已导入，print 的内容会返回，
                                                  赋值给 _result 的值会以 JSON 返回；多次调用之间变量会保留
-  {cli} exec <<'PY'                              执行多行代码（推荐）
-  ...
-  PY
-  {cli} shot --frame N -o {work}/sN.png          用场景相机渲染第 N 帧，然后用 Read 查看图片
+  {cli} exec -f {work}/step.py                   执行文件里的多行代码（推荐：先把代码写进这个文件）
+  {cli} shot --frame N -o {work}/sN.png          用场景相机渲染第 N 帧，然后{view}查看图片
   {cli} shot --mode area -o {work}/view.png      截取 3D 视口当前画面
 
 做法：
 1. 先用 exec 查询，弄清相关物体、层级、动画、相机、时间轴标记，不要凭猜测修改。
 2. 做有针对性的修改：只动完成需求所需的内容，不要删除或重建无关的东西，沿用场景已有的命名风格。
-3. 改完用 shot 渲染一两个关键帧，用 Read 看图确认效果；不对就继续调整。
+3. 改完用 shot 渲染一两个关键帧，看图确认效果；不对就继续调整。
 
 效率（很重要，用户在等）：
 - [XingViz 上下文] 里已经有场景地图和场景笔记，先利用它们，不要重复查询已知信息。
@@ -203,14 +202,14 @@ def take_screenshot():
 
 
 def install_client():
-    """把桥接客户端放到没有空格的固定路径，返回 Claude 调用它的命令前缀"""
+    """把桥接客户端放到固定路径，返回 AI 调用它的命令前缀"""
     os.makedirs(WORK_DIR, exist_ok=True)
     shutil.copy2(os.path.join(os.path.dirname(__file__), "xvctl.py"), XVCTL)
     return f"{_shell_path(sys.executable)} {_shell_path(XVCTL)}"
 
 
 def _shell_path(p):
-    """转成 Claude 的 Bash 能直接用的路径。
+    """转成 shell 里能直接用的路径。
     Windows 上 Blender 常装在 C:\\Program Files 下：换成不含空格的 8.3 短路径，再改用正斜杠（Git Bash）"""
     if os.name == "nt":
         import ctypes
@@ -221,29 +220,15 @@ def _shell_path(p):
     return shlex.quote(p)
 
 
-# ------------------------------------------------------------------ claude process
-
-def _describe_tool(c):
-    name, inp = c.get("name", ""), c.get("input") or {}
-    if name == "Bash":
-        if inp.get("description"):
-            return inp["description"]
-        cmd = inp.get("command", "")
-        for key, text in ((" exec", "在 Blender 中执行代码"), (" shot", "渲染画面检查"), (" scene", "查看场景")):
-            if key in cmd:
-                return text
-        return "运行命令"
-    if name == "Read":
-        return "查看 " + os.path.basename(inp.get("file_path", ""))
-    return name
-
+# ------------------------------------------------------------------ AI process
 
 class Job:
-    def __init__(self, cmd, stdin_text, cwd, env):
+    def __init__(self, cmd, stdin_text, cwd, env, parser, name):
         self.q = queue.Queue()
         self.proc = None
         self.cancelled = False
         self.t0 = time.time()
+        self.parser, self.name = parser, name
         threading.Thread(target=self._run, args=(cmd, stdin_text, cwd, env), daemon=True).start()
 
     def _run(self, cmd, stdin_text, cwd, env):
@@ -265,32 +250,18 @@ class Job:
                 except ValueError:
                     other.append(line)
                     continue
-                t = d.get("type")
-                if t == "system" and d.get("subtype") == "init" and d.get("session_id"):
-                    self.q.put(("session", d["session_id"]))
-                elif t == "stream_event":
-                    ev = d.get("event") or {}
-                    if ev.get("type") == "content_block_start":
-                        kind = (ev.get("content_block") or {}).get("type")
-                        text = {"thinking": "思考中…", "tool_use": "正在编写要执行的代码…",
-                                "text": "正在整理回复…"}.get(kind)
-                        if text:
-                            self.q.put(("activity", text))
-                elif t == "assistant":
-                    for c in d.get("message", {}).get("content", []):
-                        if c.get("type") == "tool_use":
-                            self.q.put(("activity", _describe_tool(c)))
-                        elif c.get("type") == "text" and c.get("text", "").strip():
-                            self.q.put(("activity", c["text"].strip().splitlines()[0]))
-                elif t == "result":
-                    got_result = True
-                    self.q.put(("result", d))
+                if not isinstance(d, dict):
+                    continue
+                for ev in self.parser.feed(d):
+                    got_result |= ev[0] == "result"
+                    self.q.put(ev)
             self.proc.wait()
             if not got_result and not self.cancelled:
-                msg = "\n".join(other[-8:]) or f"claude 退出码 {self.proc.returncode}"
+                msg = getattr(self.parser, "error", "") or "\n".join(other[-8:]) \
+                    or f"{self.name} 退出码 {self.proc.returncode}"
                 self.q.put(("error", msg))
         except Exception as ex:
-            self.q.put(("error", f"无法启动 claude：{ex}"))
+            self.q.put(("error", f"无法启动 {self.name}：{ex}"))
         finally:
             self.q.put(("done", None))
 
@@ -314,9 +285,12 @@ def start_request(prompt, screenshot=False):
     if _job:
         return "XingViz 正在处理上一个请求"
     prefs = get_prefs()
-    claude = find_claude(prefs.claude_path)
-    if not claude:
-        return "找不到 claude 命令，请在插件偏好设置里指定 Claude CLI 路径"
+    ag = agents.current(prefs)
+    exe = ag.find(prefs)
+    if not exe:
+        return f"找不到 {ag.label}。{ag.install_hint}；已经装了的话，在插件设置里指定程序路径"
+    if prefs.auth == 'API' and not getattr(prefs, f"{ag.key}_api_key"):
+        return "已选择 API Key 登录，但还没填写 API Key（插件设置里）"
 
     temp_bridge = not bridge.is_running()
     if temp_bridge:
@@ -326,37 +300,30 @@ def start_request(prompt, screenshot=False):
     cli = install_client()
 
     msg = gather_context()
-    if screenshot:
-        shot = take_screenshot()
-        if shot:
-            msg += f"\n- 用户附带了当前 3D 视口截图：{shot}（请用 Read 查看）"
     msg += f"\n\n[用户需求]\n{prompt}"
+    image = take_screenshot() if screenshot else ""
 
-    system = SYSTEM_PROMPT.format(version=bpy.app.version_string, cli=cli, work=WORK_DIR, notes=NOTES_TEXT)
+    system = SYSTEM_PROMPT.format(version=bpy.app.version_string, cli=cli, work=WORK_DIR,
+                                  notes=NOTES_TEXT, view=ag.view_hint)
     if prefs.extra_instructions:
         system += "\n\n用户的额外要求：" + prefs.extra_instructions
-    cmd = claude_command(claude) + ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-           "--permission-mode", "acceptEdits",
-           "--allowedTools", f"Bash({cli}:*)", "Read", "Write", "Edit", "Glob", "Grep",
-           "--append-system-prompt", system]
-    session = _window_scene().xingviz.session_id
-    if session:
-        cmd += ["--resume", session]
-    if prefs.fast_mode:
-        cmd += ["--model", prefs.fast_model or "sonnet", "--effort", "low"]
-    elif prefs.model:
-        cmd += ["--model", prefs.model]
+    scn = _window_scene().xingviz
+    # 换了 AI 就不能接着之前的对话
+    session = scn.session_id if scn.session_agent == ag.key else ""
+    scn.session_agent = ag.key
+    cmd, stdin_text = ag.command(exe, prefs, cli=cli, system=system, message=msg, session=session, image=image)
 
     env = os.environ.copy()
-    env["PATH"] = os.pathsep.join([os.path.dirname(claude), *extra_path_dirs(), env.get("PATH", "")])
+    env["PATH"] = os.pathsep.join([os.path.dirname(exe), *extra_path_dirs(), env.get("PATH", "")])
+    ag.env(prefs, env)
 
     undo_push("XingViz 修改前")
-    _req = dict(prompt=prompt, temp_bridge=temp_bridge, timeout=False)
-    _job = Job(cmd, msg, WORK_DIR, env)
+    _req = dict(prompt=prompt, temp_bridge=temp_bridge, timeout=False, agent=ag)
+    _job = Job(cmd, stdin_text, WORK_DIR, env, ag.Parser(), ag.label)
 
     r = rt()
     r.busy = True
-    r.status, r.activity, r.last_error, r.last_reply = "启动 Claude…", "", "", ""
+    r.status, r.activity, r.last_error, r.last_reply = f"启动 {ag.label}…", "", "", ""
     log(f"\n## {time.strftime('%Y-%m-%d %H:%M:%S')}\n> {prompt}")
     if not bpy.app.timers.is_registered(_poll):
         bpy.app.timers.register(_poll, first_interval=0.3, persistent=True)
@@ -412,7 +379,7 @@ def _poll():
                 return None
     except queue.Empty:
         pass
-    r.status = f"Claude 正在工作… {int(time.time() - job.t0)}s"
+    r.status = f"正在工作… {int(time.time() - job.t0)}s"
     redraw()
     return 0.3
 
@@ -429,15 +396,18 @@ def _finish(job):
     res = _req.get("result")
     if not res:
         return _fail(_req.get("error", "未知错误"))
-    text = (res.get("result") or "").strip()
+    text = (res.get("text") or "").strip()
     if res.get("is_error"):
-        if "login" in text.lower():
-            text = "Claude Code 还没登录。请打开终端（Windows 用 PowerShell），运行 claude，输入 /login 按提示在浏览器里登录，然后回来重新发送。"
-        if "conversation" in text.lower():
+        ag, low = _req["agent"], text.lower()
+        if any(k in low for k in ("login", "unauthorized", "401", "api key", "authentication")):
+            if get_prefs().auth == 'API':
+                text += "\n→ 请检查插件设置里的 API Key 和 API 地址。"
+            else:
+                text += f"\n→ 还没登录：打开终端（Windows 用 PowerShell），{ag.login_hint}，然后回来重新发送。"
+        elif any(k in low for k in ("conversation", "session", "thread")) and ("not found" in low or "no " in low):
             reset_session()
             text += "\n→ 已重置对话，请再发送一次。"
         return _fail(text)
-    _window_scene().xingviz.session_id = res.get("session_id", "")
     r.last_reply = text
     r.status = "✓ 完成"
     log(text)

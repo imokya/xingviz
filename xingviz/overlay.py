@@ -44,7 +44,7 @@ def _circle(cx, cy, r, color, seg=16):
 def _state():
     r = bpy.context.window_manager.xingviz
     if r.busy:
-        return "思考中…" if not r.status else r.status.replace("Claude 正在工作… ", "思考中 "), (1.0, 0.7, 0.2)
+        return "思考中…" if not r.status else r.status.replace("正在工作… ", "思考中 "), (1.0, 0.7, 0.2)
     if r.last_error:
         return "出错了，点击查看", (1.0, 0.3, 0.3)
     return "说说你想怎么改", ACCENT

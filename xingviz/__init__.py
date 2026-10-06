@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""XingViz: 用自然语言通过 Claude Code 修改 Blender previz。"""
+"""XingViz: 用自然语言通过 AI（Claude Code / Codex）修改 Blender previz。"""
 
 import bpy
 

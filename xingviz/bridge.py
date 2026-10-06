@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""桥接模式：在 127.0.0.1 上开一个小 HTTP 服务，让外部的 Claude Code 会话操控正在运行的 Blender。
+"""桥接模式：在 127.0.0.1 上开一个小 HTTP 服务，让外部的 AI 工具操控正在运行的 Blender。
 
 - 只监听本机；每个请求都要带随机令牌（X-XingViz-Token），带 Origin 头的请求（浏览器）一律拒绝
 - 端口和令牌写在 ~/.xingviz/bridge.json（权限 600），xvctl.py 会读取它；目录可用环境变量 XINGVIZ_HOME 改

@@ -48,6 +48,9 @@ def draw_composer(layout, context, width, popup=False):
 
     # 开关 + 发送
     row = layout.row(align=True)
+    sub = row.row(align=True)
+    sub.enabled = not r.busy
+    sub.prop(get_prefs(), "agent", text="")
     row.prop(r, "attach_screenshot", text="截图", icon='IMAGE_DATA', toggle=True)
     row.prop(get_prefs(), "fast_mode", text="快速", icon='AUTO', toggle=True)
     on = bridge.is_running()
@@ -66,7 +69,7 @@ def draw_composer(layout, context, width, popup=False):
                      icon='CHECKMARK')
     if r.busy and popup:
         # 弹窗不会自动刷新，别显示会"卡住"的秒数
-        _label_block(layout, "Claude 正在工作。可以关掉这个窗口，进度和结果会显示在底部按钮上，完成后再点开查看。",
+        _label_block(layout, "AI 正在工作。可以关掉这个窗口，进度和结果会显示在底部按钮上，完成后再点开查看。",
                      width, 'SORTTIME', 3)
     elif r.status:
         icon = 'SORTTIME' if r.busy else ('ERROR' if r.last_error else 'CHECKMARK')

@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "xingviz"
-version = "0.5.0"
+version = "0.6.0"
 name = "XingViz"
-tagline = "Direct your previz in plain language with Claude Code"
+tagline = "Direct your previz in plain language with Claude or Codex"
 maintainer = "xingor"
 type = "add-on"
 
@@ -17,7 +17,7 @@ license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
 files = "Stores the bridge client and screenshots in ~/.xingviz"
-network = "Runs Claude Code and a local bridge on 127.0.0.1"
+network = "Runs Claude Code or Codex and a local bridge on 127.0.0.1"
 
 [build]
 paths_exclude_pattern = ["__pycache__/", "*.pyc", ".DS_Store"]
